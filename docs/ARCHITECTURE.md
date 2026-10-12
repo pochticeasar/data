@@ -1,4 +1,4 @@
-# Архитектура пайплайна
+# Архитектура пайплайна на Spark
 
 ## Поток данных
 
@@ -7,17 +7,17 @@ flowchart LR
     CSV[("data.csv<br/>541 909 строк<br/>ISO-8859-1")]
 
     subgraph S1["Шаг 1: Ingest"]
-        I["CsvToParquetIngestion"]
+        I["SparkPipeline.ingest()<br/>try_cast + try_to_timestamp"]
     end
     subgraph S2["Шаг 2: Data Quality"]
-        P["PreparationPipeline"]
+        P["SparkPipeline.prepare()<br/>13 правил, каталог, возвраты"]
     end
     subgraph S34["Шаги 3-4: Queries + Save"]
-        Q["QueryRunner<br/>sequential | parallel"]
+        Q["SparkQuery<br/>groupBy / agg"]
     end
 
     RAW[("raw.parquet<br/>541 909 строк")]
-    PREP[("prepared.parquet<br/>536 637 строк<br/>62 row group")]
+    PREP[("prepared.parquet<br/>536 637 строк<br/>14 партиций")]
 
     RJ1[["rejected_ingest.csv"]]
     RJ2[["rejected.csv"]]
@@ -27,15 +27,15 @@ flowchart LR
     R3[["monthly_revenue.csv"]]
 
     CSV --> I --> RAW --> P --> PREP --> Q
-    I -. битые строки .-> RJ1
+    I -. битые типы .-> RJ1
     P -. нарушения ERROR .-> RJ2
     P -. счётчики правил .-> DQ
     Q --> R1 & R2 & R3
 ```
 
 Почему два слоя parquet, а не один: правила качества меняются чаще, чем формат
-источника. Разбор CSV делается один раз, дальше DQ-прогон читает колоночный
-`raw.parquet` и его можно перезапускать с новыми правилами, не трогая CSV.
+источника. CSV разбирается один раз, дальше DQ-шаг читает колоночный
+`raw.parquet` и его можно перезапускать с новыми правилами.
 
 ## Классы и интерфейсы
 
@@ -43,179 +43,94 @@ flowchart LR
 classDiagram
     direction LR
 
-    class RowSource {
-        <<interface>>
-        +header() List~String~
-        +rows() Stream~RawRow~
-    }
-    class RecordSource~T~ {
-        <<interface>>
-        +records() Stream~T~
-    }
-    class RecordSink~T~ {
-        <<interface>>
-        +write(T record)
-        +written() long
-    }
-    class RowParser~T~ {
-        <<interface>>
-        +parse(RawRow) ParseResult~T~
-    }
-    class ParquetMapper~T~ {
-        <<interface>>
-        +schema() Schema
-        +toRecord(T) GenericRecord
-        +fromRecord(GenericRecord) T
-    }
-
-    CsvRowSource ..|> RowSource
-    ParquetRecordSource ..|> RecordSource
-    CsvRecordSink ..|> RecordSink
-    ParquetRecordSink ..|> RecordSink
-    InvoiceLineParser ..|> RowParser
-    RawLineMapper ..|> ParquetMapper
-    PreparedLineMapper ..|> ParquetMapper
-    ParquetRecordSink --> ParquetMapper
-    ParquetRecordSource --> ParquetMapper
-
-    class QualityRule {
+    class SparkQuery {
         <<interface>>
         +name() String
-        +severity() Severity
-        +check(InvoiceLine) Optional~String~
+        +apply(Dataset~Row~) Dataset~Row~
     }
-    class ReturnPolicy {
-        <<interface>>
-        +decide(InvoiceLine) ReturnDecision
+    class SparkRule {
+        <<record>>
+        +name String
+        +severity Severity
+        +violated Column
     }
-    class LineClassifier {
-        <<interface>>
-        +classify(InvoiceLine) LineKind
-    }
-    class LineTransformer {
-        <<interface>>
-        +apply(InvoiceLine) InvoiceLine
-    }
-    class ProductCatalog {
-        <<interface>>
-        +descriptionFor(code, fallback) String
-        +size() int
-    }
-    class QualityReport {
-        <<interface>>
-        +onRead()
-        +onAccepted()
-        +onRejected(rule)
-        +onViolation(rule, severity)
+    class StageResult {
+        <<record>>
+        +read long
+        +accepted long
+        +rejected long
+        +violations Map
+        +isBalanced() boolean
     }
 
-    SimpleRule ..|> QualityRule
-    DuplicateRowRule ..|> QualityRule
-    DefaultReturnPolicy ..|> ReturnPolicy
-    StockCodeClassifier ..|> LineClassifier
-    CatalogDescriptionTransformer ..|> LineTransformer
-    CatalogDescriptionTransformer --> ProductCatalog
-    MostFrequentDescriptionCatalog ..|> ProductCatalog
-    InMemoryQualityReport ..|> QualityReport
-
-    class DataIngestion {
-        <<interface>>
-        +run() IngestResult
-    }
-    class DataPreparation {
-        <<interface>>
-        +run() PreparationResult
-    }
-    class Query~A~ {
-        <<interface>>
-        +name() String
-        +newAccumulator() A
-        +accumulate(A, PreparedLine)
-        +combine(A, A) A
-        +header() List~String~
-        +rows(A) List
-    }
-    class QueryRunner {
-        <<interface>>
-        +run(Query~A~) A
-        +mode() String
+    class SparkPipeline {
+        +ingest() StageResult
+        +prepare() StageResult
+        +runQuery(SparkQuery) Path
     }
 
-    CsvToParquetIngestion ..|> DataIngestion
-    PreparationPipeline ..|> DataPreparation
-    SequentialQueryRunner ..|> QueryRunner
-    ParallelQueryRunner ..|> QueryRunner
-    TopProductsQuery ..|> Query
-    CustomerMetricsQuery ..|> Query
-    MonthlyRevenueQuery ..|> Query
+    TopProductsQuery ..|> SparkQuery
+    CustomerMetricsQuery ..|> SparkQuery
+    MonthlyRevenueQuery ..|> SparkQuery
 
-    CsvToParquetIngestion --> RowSource
-    CsvToParquetIngestion --> RowParser
-    CsvToParquetIngestion --> RecordSink
-    PreparationPipeline --> RecordSource
-    PreparationPipeline --> LineTransformer
-    PreparationPipeline --> QualityRule
-    PreparationPipeline --> ReturnPolicy
-    PreparationPipeline --> LineClassifier
-    PreparationPipeline --> RecordSink
-    PreparationPipeline --> QualityReport
-    SequentialQueryRunner --> RecordSource
-    ParallelQueryRunner --> RecordSource
-    ParallelQueryRunner --> RowGroups
-
-    Pipeline --> DataIngestion
-    Pipeline --> DataPreparation
-    Pipeline --> QueryRunner
+    SparkPipeline --> SparkQuery
+    SparkPipeline --> StageResult
+    SparkPipeline --> Rules
+    SparkPipeline --> Classifier
+    SparkPipeline --> RetailSchema
+    SparkPipeline --> CsvOutput
+    Rules --> SparkRule
+    SparkRule --> Severity
+    Classifier --> LineKind
+    Classifier --> LineFlow
 ```
+
+Правило качества это не класс с методом, а запись с выражением `Column`.
+Поэтому все правила считаются одним проходом: причина отбраковки собирается
+в цепочку `when`, а счётчики нарушений в один `agg`.
 
 ## Обработка строки на шаге DQ
 
 ```mermaid
 sequenceDiagram
-    participant S as ParquetRecordSource
-    participant P as PreparationPipeline
-    participant T as LineTransformer
-    participant R as QualityRule[]
-    participant RP as ReturnPolicy
-    participant C as LineClassifier
+    participant RAW as raw.parquet
+    participant CAT as Каталог товаров
+    participant W as Оконная функция
+    participant R as Rules.errors()
+    participant C as Classifier
     participant OK as prepared.parquet
     participant BAD as rejected.csv
 
-    S->>P: InvoiceLine
-    P->>T: нормализовать Description по каталогу
-    T-->>P: InvoiceLine
-    P->>R: проверить все правила
-    R-->>P: нарушения (ERROR / WARNING)
-    alt есть ERROR
-        P->>BAD: Rejection(правило, причина)
-    else только WARNING или чисто
-        P->>RP: продажа или возврат?
-        RP-->>P: SALE / RETURN / INVALID
-        alt INVALID
-            P->>BAD: Rejection(returns.invalid)
-        else
-            P->>C: тип позиции
-            C-->>P: PRODUCT / SHIPPING / FEE / ...
-            P->>OK: PreparedLine(TotalPrice, kind, flow)
-        end
+    RAW->>CAT: groupBy(stockCode, description).count()
+    CAT-->>RAW: каноничное описание на код
+    RAW->>W: row_number по полному ключу строки
+    W-->>RAW: rowSeq (rowSeq > 1 это дубль)
+    RAW->>R: цепочка when по ERROR-правилам
+    R-->>RAW: rejectRule или null
+    alt rejectRule заполнен
+        RAW->>BAD: LineNumber, Rule, Payload
+    else
+        RAW->>C: lineKind и lineFlow
+        C-->>RAW: PRODUCT / SHIPPING / ... и SALE / RETURN
+        RAW->>OK: + totalPrice
     end
 ```
 
-## Параллельное исполнение запросов
+Дубли ищутся после нормализации описаний: иначе одна и та же строка с двумя
+разными названиями товара дублем не считается.
+
+## Параллелизм
 
 ```mermaid
 flowchart TB
-    PREP[("prepared.parquet<br/>62 row group")]
-    PREP --> R1["ByteRange 1"] --> A1["аккумулятор 1"]
-    PREP --> R2["ByteRange 2"] --> A2["аккумулятор 2"]
-    PREP --> RN["ByteRange N"] --> AN["аккумулятор N"]
-    A1 --> M["combine<br/>ассоциативное слияние"]
-    A2 --> M
-    AN --> M
-    M --> OUT[["результат = результату одного потока"]]
+    CSV[("CSV / parquet")] --> SP["Spark разбивает вход на партиции"]
+    SP --> T1["task 1"] & T2["task 2"] & TN["task N"]
+    T1 & T2 & TN --> SH["shuffle по ключу группировки"]
+    SH --> AG["агрегация частичных сумм"]
+    AG --> OUT[["результат не зависит от числа партиций"]]
 ```
 
-`Query` задан как map-reduce свёртка: `newAccumulator`, `accumulate`, `combine`.
-Поэтому один и тот же запрос исполняется и в одном потоке, и по row group
-параллельно. Разделяемого состояния нет, блокировок нет, слияние один раз в конце.
-`Main` прогоняет каждый запрос оба раза и сверяет результаты между собой.
+Параллелизм обеспечивает Spark: `local[*]` поднимает по задаче на ядро,
+`spark.sql.shuffle.partitions` задаёт параллелизм агрегаций. Деньги считаются
+в `decimal(20,4)`, а не в `double`, поэтому суммы точные и не зависят от
+порядка слагаемых, то есть от разбиения на партиции.

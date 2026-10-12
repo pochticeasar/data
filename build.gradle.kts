@@ -12,26 +12,34 @@ repositories {
 
 java {
     toolchain {
-        languageVersion = JavaLanguageVersion.of(26)
+        // Spark 4.2 поддерживает 17 и 21. На JDK 26 он падает на доступе к внутренностям JDK.
+        languageVersion = JavaLanguageVersion.of(21)
     }
 }
 
 application {
     mainClass = "org.example.Main"
+    // Spark лезет во внутренние пакеты JDK, без этих ключей падает на старте.
+    applicationDefaultJvmArgs = listOf(
+        "-Xmx4g",
+        "--add-opens=java.base/java.lang=ALL-UNNAMED",
+        "--add-opens=java.base/java.lang.invoke=ALL-UNNAMED",
+        "--add-opens=java.base/java.lang.reflect=ALL-UNNAMED",
+        "--add-opens=java.base/java.io=ALL-UNNAMED",
+        "--add-opens=java.base/java.net=ALL-UNNAMED",
+        "--add-opens=java.base/java.nio=ALL-UNNAMED",
+        "--add-opens=java.base/java.util=ALL-UNNAMED",
+        "--add-opens=java.base/java.util.concurrent=ALL-UNNAMED",
+        "--add-opens=java.base/java.util.concurrent.atomic=ALL-UNNAMED",
+        "--add-opens=java.base/sun.nio.ch=ALL-UNNAMED",
+        "--add-opens=java.base/sun.nio.cs=ALL-UNNAMED",
+        "--add-opens=java.base/sun.security.action=ALL-UNNAMED",
+        "--add-opens=java.base/sun.util.calendar=ALL-UNNAMED",
+    )
 }
 
 dependencies {
-    implementation("org.apache.parquet:parquet-avro:1.15.2") {
-        exclude(group = "org.apache.hadoop")
-    }
-    implementation("org.apache.parquet:parquet-hadoop:1.15.2") {
-        exclude(group = "org.apache.hadoop")
-    }
-
-    // parquet-java завязан на классы hadoop (Configuration, Path), поэтому они нужны в classpath.
-    // Файловая система hadoop при этом не используется: читаем и пишем через LocalInputFile/LocalOutputFile.
-    implementation("org.apache.hadoop:hadoop-client-api:3.4.1")
-    runtimeOnly("org.apache.hadoop:hadoop-client-runtime:3.4.1")
+    implementation("org.apache.spark:spark-sql_2.13:4.2.0")
 
     testImplementation(platform("org.junit:junit-bom:6.0.0"))
     testImplementation("org.junit.jupiter:junit-jupiter")
@@ -40,4 +48,5 @@ dependencies {
 
 tasks.test {
     useJUnitPlatform()
+    jvmArgs = application.applicationDefaultJvmArgs.toList()
 }
