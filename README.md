@@ -9,6 +9,7 @@
 ./gradlew run --args="data.csv out"          # потоков = по числу ядер
 ./gradlew run --args="data.csv out 4"        # 4 потока на запросах
 ./gradlew test                               # тесты
+python3 tools/crosscheck.py data.csv out     # независимая сверка результатов
 ```
 
 ## Что происходит
@@ -70,6 +71,10 @@ netto (с вычетом возвратов).
 | 3 | 85099B | JUMBO BAG RED RETROSPOT | 48375 | 1115 | 47260 |
 | 4 | 85123A | WHITE HANGING HEART T-LIGHT HOLDER | 41645 | 2834 | 38811 |
 | 5 | 84879 | ASSORTED COLOUR BIRD ORNAMENT | 36362 | 240 | 36122 |
+
+Результаты сверяются с независимой реализацией на Python
+(`tools/crosscheck.py`): она считает те же метрики другим кодом прямо по CSV,
+без parquet. Сверка проходит, расхождений нет.
 
 Клиентов в выгрузке: 4372. Ускорение от параллельного исполнения на 14 потоках
 и 62 row group: от x2.1 до x4.3 в зависимости от запроса. Результаты
