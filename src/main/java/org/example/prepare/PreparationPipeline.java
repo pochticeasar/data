@@ -6,15 +6,12 @@ import org.example.dq.ReturnDecision;
 import org.example.dq.ReturnPolicy;
 import org.example.dq.Severity;
 import org.example.io.RecordSink;
-import org.example.io.RowSource;
+import org.example.io.RecordSource;
 import org.example.model.InvoiceLine;
 import org.example.model.LineFlow;
 import org.example.model.LineKind;
 import org.example.model.PreparedLine;
-import org.example.model.RawRow;
 import org.example.model.Rejection;
-import org.example.parse.ParseResult;
-import org.example.parse.RowParser;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -23,14 +20,13 @@ import java.util.List;
 import java.util.function.Supplier;
 
 /**
- * Порядок обработки строки: парсинг -> нормализация -> правила качества ->
- * политика возвратов -> классификация позиции -> выгрузка.
+ * Шаг 2: сырой слой -> подготовленный. Порядок обработки строки:
+ * нормализация -> правила качества -> политика возвратов -> классификация позиции.
  * Строка либо попадает в prepared, либо в rejected с причиной, третьего нет.
  */
 public final class PreparationPipeline implements DataPreparation {
 
-    private final Supplier<RowSource> sourceFactory;
-    private final RowParser<InvoiceLine> parser;
+    private final Supplier<RecordSource<InvoiceLine>> sourceFactory;
     private final LineTransformer transformer;
     private final List<QualityRule> rules;
     private final ReturnPolicy returnPolicy;
@@ -41,8 +37,7 @@ public final class PreparationPipeline implements DataPreparation {
     private final int catalogSize;
 
     public PreparationPipeline(
-            Supplier<RowSource> sourceFactory,
-            RowParser<InvoiceLine> parser,
+            Supplier<RecordSource<InvoiceLine>> sourceFactory,
             LineTransformer transformer,
             List<QualityRule> rules,
             ReturnPolicy returnPolicy,
@@ -53,7 +48,6 @@ public final class PreparationPipeline implements DataPreparation {
             int catalogSize
     ) {
         this.sourceFactory = sourceFactory;
-        this.parser = parser;
         this.transformer = transformer;
         this.rules = rules;
         this.returnPolicy = returnPolicy;
@@ -66,8 +60,8 @@ public final class PreparationPipeline implements DataPreparation {
 
     @Override
     public PreparationResult run() {
-        try (RowSource source = sourceFactory.get()) {
-            source.rows().forEach(this::process);
+        try (RecordSource<InvoiceLine> source = sourceFactory.get()) {
+            source.records().forEach(this::process);
         }
         return new PreparationResult(
                 report.read(),
@@ -78,20 +72,10 @@ public final class PreparationPipeline implements DataPreparation {
                 report.severities());
     }
 
-    private void process(RawRow row) {
+    private void process(InvoiceLine raw) {
         report.onRead();
 
-        InvoiceLine line;
-        switch (parser.parse(row)) {
-            case ParseResult.Ok<InvoiceLine> ok -> line = ok.value();
-            case ParseResult.Error<InvoiceLine> error -> {
-                report.onViolation(error.rule(), Severity.ERROR);
-                reject(row, error.rule(), error.message());
-                return;
-            }
-        }
-
-        line = transformer.apply(line);
+        InvoiceLine line = transformer.apply(raw);
 
         List<String> blocking = new ArrayList<>(2);
         String blockingRule = null;
@@ -109,14 +93,14 @@ public final class PreparationPipeline implements DataPreparation {
             }
         }
         if (blockingRule != null) {
-            reject(row, blockingRule, String.join("; ", blocking));
+            reject(line, blockingRule, String.join("; ", blocking));
             return;
         }
 
         ReturnDecision decision = returnPolicy.decide(line);
         if (decision == ReturnDecision.INVALID) {
             report.onViolation("returns.invalid", Severity.ERROR);
-            reject(row, "returns.invalid",
+            reject(line, "returns.invalid",
                     "Quantity = " + line.quantity() + ", счёт " + line.invoiceNo());
             return;
         }
@@ -140,8 +124,9 @@ public final class PreparationPipeline implements DataPreparation {
         report.onAccepted();
     }
 
-    private void reject(RawRow row, String rule, String message) {
-        rejectedSink.write(new Rejection(row.lineNumber(), rule, message, row.rawLine()));
+    private void reject(InvoiceLine line, String rule, String message) {
+        rejectedSink.write(new Rejection(
+                line.lineNumber(), rule, message, line.invoiceNo() + "/" + line.stockCode()));
         report.onRejected(rule);
     }
 }

@@ -1,9 +1,7 @@
 package org.example.prepare;
 
-import org.example.io.RowSource;
+import org.example.io.RecordSource;
 import org.example.model.InvoiceLine;
-import org.example.parse.ParseResult;
-import org.example.parse.RowParser;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -21,16 +19,14 @@ public final class MostFrequentDescriptionCatalog implements ProductCatalog {
         this.canonical = canonical;
     }
 
-    public static ProductCatalog scan(RowSource source, RowParser<InvoiceLine> parser) {
+    public static ProductCatalog scan(RecordSource<InvoiceLine> source) {
         Map<String, Map<String, Long>> counts = new HashMap<>();
-        source.rows().forEach(row -> {
-            if (parser.parse(row) instanceof ParseResult.Ok<InvoiceLine>(InvoiceLine line)) {
-                if (line.description().isEmpty() || line.stockCode().isEmpty()) {
-                    return;
-                }
-                counts.computeIfAbsent(line.stockCode(), unused -> new HashMap<>())
-                        .merge(line.description(), 1L, Long::sum);
+        source.records().forEach(line -> {
+            if (line.description().isEmpty() || line.stockCode().isEmpty()) {
+                return;
             }
+            counts.computeIfAbsent(line.stockCode(), unused -> new HashMap<>())
+                    .merge(line.description(), 1L, Long::sum);
         });
 
         Map<String, String> canonical = new HashMap<>(counts.size() * 2);

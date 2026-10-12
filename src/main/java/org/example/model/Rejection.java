@@ -1,5 +1,5 @@
 package org.example.model;
 
-/** Отбракованная строка: куда смотреть в исходнике, какое правило сработало. */
-public record Rejection(long lineNumber, String rule, String message, String rawLine) {
+/** Отбракованная строка: где искать в источнике, какое правило сработало. */
+public record Rejection(long lineNumber, String rule, String message, String payload) {
 }
