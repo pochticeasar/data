@@ -1,0 +1,40 @@
+InvoiceNo,StockCode,Description,Quantity,InvoiceDate,UnitPrice,CustomerID,Country
+536365,85123A,WHITE HANGING HEART T-LIGHT HOLDER,6,12/1/2010 8:26,2.55,17850,United Kingdom
+536365,85123A,wrong description rare,1,12/1/2010 8:27,2.55,17850,United Kingdom
+536365,85123A,WHITE HANGING HEART T-LIGHT HOLDER,6,12/1/2010 8:26,2.55,17850,United Kingdom
+536414,22139,,56,12/1/2010 11:52,0,,United Kingdom
+536589,21777,,-10,12/1/2010 16:50,0,,United Kingdom
+C536380,22632,HAND WARMER RED POLKA DOT,2,12/1/2010 9:41,1.85,17850,United Kingdom
+536900,22139,zero qty row,0,12/1/2010 10:00,1.25,17850,United Kingdom
+A563186,B,Adjust bad debt,1,8/12/2011 14:51,-11062.06,,United Kingdom
+536901,22139,too early,1,11/30/2010 23:59,1.25,17850,United Kingdom
+536902,22139,too late,1,12/10/2011 0:00,1.25,17850,United Kingdom
+549687,20685,DOORMAT RED RETROSPOT,2,4/11/2011 13:29,7.95,12363,Unspecified
+536544,DOT,DOTCOM POSTAGE,1,12/1/2010 14:32,569.77,,United Kingdom
+536779,BANK CHARGES,Bank Charges,1,12/2/2010 15:08,15,15823,United Kingdom
+539492,gift_0001_40,Dotcomgiftshop Gift Voucher £40.00,1,12/20/2010 10:14,34.04,,United Kingdom
+,,,,,
+badqty,22139,x,abc,12/1/2010 10:00,1.25,17850,United Kingdom
+badprice,22139,x,1,12/1/2010 10:00,n/a,17850,United Kingdom
+baddate,22139,x,1,not-a-date,1.25,17850,United Kingdom
+536910,D01,iso date format,1,2010-12-01 08:26,1.25,17850,United Kingdom
+536911,D02,date without time,1,12/1/2010,1.25,17850,United Kingdom
+536912,D03,time only,1,8:26,1.25,17850,United Kingdom
+true,T01,bad type InvoiceNo,1,12/1/2010 10:00,1.25,17850,United Kingdom
+536913,3.14,bad type StockCode,1,12/1/2010 10:00,1.25,17850,United Kingdom
+536914,T03,999,1,12/1/2010 10:00,1.25,17850,United Kingdom
+536915,T04,bad type Quantity,1.5,12/1/2010 10:00,1.25,17850,United Kingdom
+536916,T05,bad type InvoiceDate,1,true,1.25,17850,United Kingdom
+536917,T06,bad type UnitPrice,1,12/1/2010 10:00,true,17850,United Kingdom
+536918,T07,bad type CustomerID,1,12/1/2010 10:00,1.25,not-a-number,United Kingdom
+536919,T08,bad type Country,1,12/1/2010 10:00,1.25,17850,42
+,E01,empty InvoiceNo,1,12/1/2010 10:00,1.25,17850,United Kingdom
+536903,,empty StockCode,1,12/1/2010 10:00,1.25,17850,United Kingdom
+536904,E03,,1,12/1/2010 10:00,1.25,17850,United Kingdom
+536905,E04,empty Quantity,,12/1/2010 10:00,1.25,17850,United Kingdom
+536906,E05,empty InvoiceDate,1,,1.25,17850,United Kingdom
+536907,E06,empty UnitPrice,1,12/1/2010 10:00,,17850,United Kingdom
+536908,E07,empty CustomerID,1,12/1/2010 10:00,1.25,,United Kingdom
+536909,E08,empty Country,1,12/1/2010 10:00,1.25,17850,
+,,,,,,,
+only,three,fields

@@ -7,6 +7,7 @@ import org.apache.spark.sql.SaveMode;
 import org.apache.spark.sql.SparkSession;
 import org.apache.spark.sql.expressions.Window;
 import org.apache.spark.sql.expressions.WindowSpec;
+import org.example.dq.Dimension;
 import org.example.dq.Severity;
 
 import java.nio.file.Path;
@@ -65,6 +66,7 @@ public final class SparkPipeline {
     /** Шаг 1: CSV -> raw.parquet. Отбраковываются только технически битые строки. */
     public StageResult ingest() {
         long startedAt = System.currentTimeMillis();
+        requireReadableSource();
 
         Dataset<Row> source = spark.read()
                 .option("header", true)
@@ -120,7 +122,13 @@ public final class SparkPipeline {
 
         Dataset<Row> raw = spark.read().parquet(rawParquet().toString());
         Dataset<Row> normalized = withCanonicalDescription(raw)
-                .withColumn("isCancellation", upper(substring(col("invoiceNo"), 1, 1)).equalTo("C"));
+                .withColumn("isCancellation", upper(substring(col("invoiceNo"), 1, 1)).equalTo("C"))
+                // Исходное значение остаётся для правил схемы, дальше по пайплайну
+                // нечисловой идентификатор считается отсутствующим.
+                .withColumn("customerIdSource", col("customerId"))
+                .withColumn("customerId",
+                        when(col("customerId").rlike(RetailSchema.CUSTOMER_NUMERIC_PATTERN),
+                                col("customerId")));
 
         // Дубли ищутся после нормализации описаний: иначе один и тот же товар
         // с двумя разными названиями не считается дублем.
@@ -130,26 +138,27 @@ public final class SparkPipeline {
                 .withColumn("rejectRule", rejectRule())
                 .cache();
 
-        List<SparkRule> all = new ArrayList<>(Rules.errors());
-        all.addAll(Rules.warnings());
+        List<SparkRule> all = Rules.all();
 
         List<Column> aggregates = new ArrayList<>();
+        // coalesce обязателен: на пустом входе sum возвращает null, а не ноль.
         aggregates.add(count(lit(1)).as("rows.read"));
-        aggregates.add(sum(when(col("rejectRule").isNotNull(), 1).otherwise(0)).as("rows.rejected"));
+        aggregates.add(coalesce(sum(when(col("rejectRule").isNotNull(), 1).otherwise(0)), lit(0L))
+                .as("rows.rejected"));
         all.forEach(rule -> aggregates.add(
-                sum(when(rule.violated(), 1).otherwise(0)).as(rule.name())));
+                coalesce(sum(when(rule.violated(), 1).otherwise(0)), lit(0L)).as(rule.name())));
 
         Row counters = marked.agg(aggregates.get(0), aggregates.subList(1, aggregates.size()).toArray(new Column[0])).first();
         long read = counters.getLong(counters.fieldIndex("rows.read"));
         long rejected = counters.getLong(counters.fieldIndex("rows.rejected"));
 
         Map<String, Long> violations = new LinkedHashMap<>();
-        Map<String, Severity> severities = new LinkedHashMap<>();
+        List<SparkRule> triggered = new ArrayList<>();
         for (SparkRule rule : all) {
             long value = counters.getLong(counters.fieldIndex(rule.name()));
             if (value > 0) {
                 violations.put(rule.name(), value);
-                severities.put(rule.name(), rule.severity());
+                triggered.add(rule);
             }
         }
 
@@ -168,7 +177,7 @@ public final class SparkPipeline {
                         "unitPrice", "totalPrice", "customerId", "country", "lineKind", "lineFlow")
                 .write().mode(SaveMode.Overwrite).parquet(preparedParquet().toString());
 
-        writeReport(read, read - rejected, rejected, violations, severities);
+        writeReport(read, read - rejected, rejected, violations, triggered);
         marked.unpersist();
         return new StageResult(read, read - rejected, rejected, violations, System.currentTimeMillis() - startedAt);
     }
@@ -223,22 +232,43 @@ public final class SparkPipeline {
     }
 
     private void writeReport(long read, long accepted, long rejected,
-                             Map<String, Long> violations, Map<String, Severity> severities) {
+                             Map<String, Long> violations, List<SparkRule> triggered) {
         List<Row> rows = new ArrayList<>();
-        rows.add(org.apache.spark.sql.RowFactory.create("rows.read", "INFO", read));
-        rows.add(org.apache.spark.sql.RowFactory.create("rows.accepted", "INFO", accepted));
-        rows.add(org.apache.spark.sql.RowFactory.create("rows.rejected", "INFO", rejected));
-        violations.entrySet().stream()
-                .sorted((a, b) -> Long.compare(b.getValue(), a.getValue()))
-                .forEach(entry -> rows.add(org.apache.spark.sql.RowFactory.create(
-                        entry.getKey(), severities.get(entry.getKey()).name(), entry.getValue())));
+        rows.add(org.apache.spark.sql.RowFactory.create("rows.read", "TOTAL", "INFO", read));
+        rows.add(org.apache.spark.sql.RowFactory.create("rows.accepted", "TOTAL", "INFO", accepted));
+        rows.add(org.apache.spark.sql.RowFactory.create("rows.rejected", "TOTAL", "INFO", rejected));
+        triggered.stream()
+                .sorted((a, b) -> Long.compare(violations.get(b.name()), violations.get(a.name())))
+                .forEach(rule -> rows.add(org.apache.spark.sql.RowFactory.create(
+                        rule.name(), rule.dimension().name(), rule.severity().name(),
+                        violations.get(rule.name()))));
 
         org.apache.spark.sql.types.StructType schema = new org.apache.spark.sql.types.StructType()
                 .add("Rule", org.apache.spark.sql.types.DataTypes.StringType)
+                .add("Dimension", org.apache.spark.sql.types.DataTypes.StringType)
                 .add("Severity", org.apache.spark.sql.types.DataTypes.StringType)
                 .add("Rows", org.apache.spark.sql.types.DataTypes.LongType);
 
         CsvOutput.writeSingle(spark.createDataFrame(rows, schema), outDir.resolve("dq_report.csv"));
+    }
+
+    /**
+     * Spark на отсутствующем пути бросает AnalysisException, а на пустом файле
+     * молча отдаёт ноль строк. Для вызывающего это одинаково непонятно, поэтому
+     * проверяем файл сами и говорим, что именно не так.
+     */
+    private void requireReadableSource() {
+        if (!java.nio.file.Files.isRegularFile(input)) {
+            throw new java.io.UncheckedIOException(
+                    new java.nio.file.NoSuchFileException(input.toString()));
+        }
+        try {
+            if (java.nio.file.Files.size(input) == 0) {
+                throw new IllegalArgumentException("Пустой файл: " + input);
+            }
+        } catch (java.io.IOException e) {
+            throw new java.io.UncheckedIOException(e);
+        }
     }
 
     private static Column[] columns(String[] names) {

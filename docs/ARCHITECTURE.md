@@ -10,7 +10,7 @@ flowchart LR
         I["SparkPipeline.ingest()<br/>try_cast + try_to_timestamp"]
     end
     subgraph S2["Шаг 2: Data Quality"]
-        P["SparkPipeline.prepare()<br/>13 правил, каталог, возвраты"]
+        P["SparkPipeline.prepare()<br/>18 правил, каталог, возвраты"]
     end
     subgraph S34["Шаги 3-4: Queries + Save"]
         Q["SparkQuery<br/>groupBy / agg"]
@@ -86,7 +86,7 @@ classDiagram
 ```
 
 Правило качества это не класс с методом, а запись с выражением `Column`.
-Поэтому все правила считаются одним проходом: причина отбраковки собирается
+Поэтому все 18 правил считаются одним проходом: причина отбраковки собирается
 в цепочку `when`, а счётчики нарушений в один `agg`.
 
 ## Обработка строки на шаге DQ

@@ -46,6 +46,9 @@ public final class TopProductsQuery implements SparkQuery {
                         coalesce(sum(col("totalPrice")), lit(0)).cast(RetailSchema.OUTPUT_MONEY_TYPE)
                                 .as("RevenueNet"))
                 .withColumn("QuantityNet", col("QuantitySold").minus(col("QuantityReturned")))
+                // Товар, которого вернули больше, чем купили, в рейтинге популярности
+                // бессмысленен: он попадал в топ с отрицательным количеством.
+                .filter(col("QuantityNet").gt(0))
                 .orderBy(col("QuantityNet").desc(), col("stockCode").asc())
                 .limit(limit)
                 // Номер в рейтинге нумеруется после отсечения топа: окно без

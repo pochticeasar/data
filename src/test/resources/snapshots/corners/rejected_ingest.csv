@@ -1,0 +1,16 @@
+LineNumber,Rule,Payload
+14,parse.quantity,
+15,parse.quantity,badqty/22139
+16,parse.unitPrice,badprice/22139
+17,parse.invoiceDate,baddate/22139
+18,parse.invoiceDate,536910/D01
+19,parse.invoiceDate,536911/D02
+20,parse.invoiceDate,536912/D03
+24,parse.quantity,536915/T04
+25,parse.invoiceDate,536916/T05
+26,parse.unitPrice,536917/T06
+32,parse.quantity,536905/E04
+33,parse.invoiceDate,536906/E05
+34,parse.unitPrice,536907/E06
+37,parse.quantity,
+38,parse.quantity,only/three

@@ -1,0 +1,4 @@
+CustomerID,OrdersSales,OrdersTotal,TotalGross,ReturnsAmount,TotalNet,AvgCheckGross,AvgCheckNet
+17850,6,6,24.10,0.00,24.10,4.02,4.02
+12363,1,1,15.90,0.00,15.90,15.90,15.90
+15823,1,1,15.00,0.00,15.00,15.00,15.00

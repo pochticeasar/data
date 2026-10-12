@@ -1,0 +1,4 @@
+Rule,Dimension,Severity,Rows
+rows.read,TOTAL,INFO,0
+rows.accepted,TOTAL,INFO,0
+rows.rejected,TOTAL,INFO,0

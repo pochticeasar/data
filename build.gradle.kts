@@ -49,4 +49,7 @@ dependencies {
 tasks.test {
     useJUnitPlatform()
     jvmArgs = application.applicationDefaultJvmArgs.toList()
+    systemProperty("snapshots.dir", layout.projectDirectory.dir("src/test/resources/snapshots").asFile.absolutePath)
+    // полный data.csv долгий — при необходимости: ./gradlew test -DupdateSnapshots=true
+    systemProperty("updateSnapshots", System.getProperty("updateSnapshots", "false"))
 }

@@ -1,0 +1,10 @@
+LineNumber,Rule,Payload
+2,row.duplicate,536365/85123A
+7,price.negative,A563186/B
+9,date.outOfPeriod,536902/22139
+36,country.required,536909/E08
+8,date.outOfPeriod,536901/22139
+29,invoice.required,E01
+6,quantity.nonzero,536900/22139
+5,returns.invalid,C536380/22632
+30,stock.required,536903

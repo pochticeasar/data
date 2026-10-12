@@ -6,7 +6,6 @@ import org.example.model.LineKind;
 
 import static org.apache.spark.sql.functions.col;
 import static org.apache.spark.sql.functions.lit;
-import static org.apache.spark.sql.functions.substring;
 import static org.apache.spark.sql.functions.upper;
 import static org.apache.spark.sql.functions.when;
 
@@ -27,7 +26,9 @@ public final class Classifier {
                 .when(code.equalTo("S"), lit(LineKind.SAMPLE.name()))
                 .when(code.isin("BANK CHARGES", "AMAZONFEE"), lit(LineKind.FEE.name()))
                 .when(code.startsWith("GIFT_"), lit(LineKind.GIFT_CARD.name()))
-                .when(substring(code, 1, 1).rlike("^[0-9]$"), lit(LineKind.PRODUCT.name()))
+                // Товар это цифровой код, возможно с буквенным суффиксом варианта (85123A).
+                // Раньше хватало одной цифры в начале, и товаром становился мусор вида 3.14.
+                .when(code.rlike(RetailSchema.PRODUCT_CODE_PATTERN), lit(LineKind.PRODUCT.name()))
                 .otherwise(lit(LineKind.OTHER.name()));
     }
 

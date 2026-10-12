@@ -1,0 +1,6 @@
+Rank,StockCode,Description,QuantitySold,QuantityReturned,QuantityNet,RevenueNet
+1,1001,RED MUG,36,0,36,72.00
+2,1002,BLUE MUG,29,0,29,87.00
+3,1005,BLACK SPOON,30,5,25,25.00
+4,1003,GREEN PLATE,12,0,12,60.00
+5,1004,WHITE BOWL,12,0,12,48.00

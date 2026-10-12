@@ -1,0 +1,7 @@
+Rule,Dimension,Severity,Rows
+rows.read,TOTAL,INFO,13
+rows.accepted,TOTAL,INFO,13
+rows.rejected,TOTAL,INFO,0
+schema.invoiceNo.format,SCHEMA,WARNING,13
+schema.stockCode.otherFormat,SCHEMA,WARNING,13
+schema.customerId.format,SCHEMA,WARNING,13

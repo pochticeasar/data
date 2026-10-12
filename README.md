@@ -8,8 +8,9 @@
 ```bash
 ./gradlew run --args="data.csv out"              # local[*], по задаче на ядро
 ./gradlew run --args="data.csv out local[4]"     # 4 ядра
-./gradlew test                                   # тесты
-python3 tools/crosscheck.py data.csv out         # независимая сверка результатов
+./gradlew test                                   # все тесты, 22 штуки
+python3 tools/crosscheck.py data.csv out         # сверка цифр второй реализацией
+python3 tools/validate_outputs.py out            # проверка самих выгрузок
 ```
 
 Стек: Spark 4.2.0 (`spark-sql_2.13`), Java, Gradle. Spark не работает на JDK 26,
@@ -21,11 +22,43 @@ python3 tools/crosscheck.py data.csv out         # независимая све
 | Шаг | Что делает | Выход |
 |---|---|---|
 | 1. Ingest | CSV -> колоночный слой, `try_cast`, отбраковка только битых типов | `out/raw.parquet`, `out/rejected_ingest.csv` |
-| 2. Data Quality | 13 правил, нормализация справочника товаров, разметка возвратов | `out/prepared.parquet`, `out/rejected.csv`, `out/dq_report.csv` |
+| 2. Data Quality | 18 правил в 6 измерениях качества, нормализация справочника товаров, разметка возвратов | `out/prepared.parquet`, `out/rejected.csv`, `out/dq_report.csv` |
 | 3. Queries | 3 запроса на DataFrame API | в памяти |
 | 4. Save | выгрузка результатов | `out/top_products.csv`, `out/customer_metrics.csv`, `out/monthly_revenue.csv` |
 
 Архитектура и UML: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+
+## Тесты
+
+```bash
+./gradlew test                                        # всё
+./gradlew test --tests 'org.example.IngestStageTest'  # один класс
+./gradlew test --tests '*DataQuality*'                # по маске
+./gradlew test -DupdateSnapshots=true                 # перезаписать снепшоты
+./gradlew test --info                                 # с выводом Spark
+```
+
+| Класс | Что проверяет |
+|---|---|
+| `IngestStageTest` | шаг 1: приведение типов, битые значения, отсутствующий и пустой файл |
+| `DataQualityStageTest` | шаг 2: каждое ERROR-правило, предупреждения, отклонения от схемы, возвраты, дубли, каталог описаний |
+| `QueriesTest` | шаги 3-4: сортировка и фильтры топа, метрики клиента, месяцы, пустой результат |
+| `MainE2ETest` | полный прогон `Main.main` на фикстурах, сравнение всех выгрузок со снепшотами |
+
+Фикстуры лежат в `src/test/resources/e2e`: `greenpath` (чистые данные),
+`corners` (39 краевых строк: битые типы, дубли, отмены, служебные коды, мусор
+в идентификаторах), `header_only` (только шапка). Ожидаемые выгрузки для них
+зафиксированы в `src/test/resources/snapshots`.
+
+Снепшот это зафиксированное поведение, а не истина в последней инстанции.
+Если выгрузка изменилась осознанно, снепшоты перезаписываются флагом
+`-DupdateSnapshots=true`, и diff обязательно читается глазами перед коммитом.
+
+Две проверки живут вне JUnit, потому что работают по полному датасету:
+`tools/crosscheck.py` пересчитывает метрики независимой реализацией на Python
+и сверяет с выгрузками, `tools/validate_outputs.py` проверяет сами CSV на типы,
+инварианты (`QuantityNet = Sold - Returned`, `TotalNet = Gross - Returns`,
+средний чек = сумма / число заказов, сортировка) и соответствие схеме источника.
 
 ## Решения по данным
 
@@ -49,6 +82,19 @@ netto (с вычетом возвратов).
 `S` - образцы. Они попадают в деньги клиента (он их реально заплатил), но
 исключены из топа товаров: иначе рейтинг возглавила бы доставка.
 
+Товаром считается цифровой код с необязательным буквенным суффиксом варианта
+(`22197`, `85123A`). Раньше хватало одной цифры в начале, и товаром становился
+мусор вида `3.14`. В топ также не попадают товары, которых вернули больше, чем
+купили: в рейтинге популярности отрицательное количество бессмысленно.
+
+**Соответствие схеме.** Описание датасета обещает `InvoiceNo` из 6 цифр,
+`StockCode` из 5 цифр, `CustomerID` из 5 цифр и отсутствие пропусков. Данные
+отклоняются от этого массово, поэтому проверки измерения `SCHEMA` это
+предупреждения: отбраковка по ним выкинула бы корректные продажи. В отчёте
+видно, сколько строк и как именно отклоняется. Исключение одно: нечисловой
+`CustomerID` дальше считается отсутствующим, приписать такую строку клиенту
+нельзя, а выкидывать саму продажу не за что.
+
 **Справочник товаров.** У 647 кодов из 4070 несколько разных `Description`.
 Берётся самое частое непустое описание на код, при равенстве - лексикографически
 меньшее, чтобы прогон был воспроизводимым.
@@ -62,14 +108,24 @@ netto (с вычетом возвратов).
 ```
 Шаг 1: прочитано 541909, записано 541909, не разобрано 0
 Шаг 2: принято 536637, отбраковано 5272
-  row.duplicate                        ERROR     5270
-  price.negative                       ERROR        2
-  customer.missing                     WARNING 135080
-  price.zero                           WARNING   2515
-  returns.negativeWithoutCancellation  WARNING   1336
-  country.unspecified                  WARNING    446
-  description.missing                  WARNING    112
+
+правило                              измерение     серьёзность  строк
+row.duplicate                        UNIQUENESS    ERROR          5270
+price.negative                       VALIDITY      ERROR             2
+customer.missing                     COMPLETENESS  WARNING      135080
+schema.stockCode.variantSuffix       SCHEMA        WARNING       51878
+schema.stockCode.otherFormat         SCHEMA        WARNING        2995
+price.zero                           VALIDITY      WARNING        2515
+returns.negativeWithoutCancellation  CONSISTENCY   WARNING        1336
+country.unspecified                  REFERENCE     WARNING         446
+description.missing                  COMPLETENESS  WARNING         112
+schema.invoiceNo.format              SCHEMA        WARNING           3
 ```
+
+Отклонения от схемы: 51 878 строк с буквенным суффиксом в `StockCode`,
+2995 со служебными или нестандартными кодами, 3 счёта с префиксом `A`
+вместо 6 цифр. Нечисловых `CustomerID` и неизвестных стран в источнике нет,
+эти правила не сработали.
 
 Топ-5 товаров по количеству проданных единиц (без возвратов - `QuantityNet`):
 

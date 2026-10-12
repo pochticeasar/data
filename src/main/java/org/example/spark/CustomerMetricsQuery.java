@@ -54,8 +54,13 @@ public final class CustomerMetricsQuery implements SparkQuery {
                         average(col("net"), col("OrdersTotal")).as("AvgCheckNet"));
     }
 
+    /**
+     * Средний чек при нуле заказов - это 0.00, а не пустая ячейка: 33 клиента
+     * в периоде только возвращали товар, и пустое значение ломало тип колонки
+     * в выгрузке. Факт виден по OrdersSales = 0.
+     */
     private static org.apache.spark.sql.Column average(org.apache.spark.sql.Column sum, org.apache.spark.sql.Column count) {
-        return when(count.equalTo(0), lit(null))
+        return when(count.equalTo(0), lit(0))
                 .otherwise(sum.divide(count))
                 .cast(RetailSchema.OUTPUT_MONEY_TYPE);
     }
